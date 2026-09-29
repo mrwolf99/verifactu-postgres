@@ -40,7 +40,7 @@ Si la huella de un registro no coincide con la que calcula la AEAT, el registro 
 
 Sin extensiones: usa `sha256()` y `convert_to()` del núcleo, sin `pgcrypto`. La instalación exige **PostgreSQL 14 o posterior** y una base en **UTF8**.
 
-**Dónde se ha probado:** PostgreSQL 17.11, Node 24 y Deno 2.9, en macOS. La CI ([`.github/workflows/pruebas.yml`](.github/workflows/pruebas.yml)) está configurada para PostgreSQL 14 a 18 y Node 18 a 24, **pendiente de su primera pasada**. En navegadores, sin probar.
+**Dónde se ha probado:** PostgreSQL 17.11, Node 24 y Deno 2.9, en macOS; y en la CI de GitHub ([`.github/workflows/pruebas.yml`](.github/workflows/pruebas.yml)), en verde el 29 sep 2026 sobre **PostgreSQL 14, 15, 16, 17 y 18**, **Node 18, 20, 22 y 24** y **Deno** ([primera pasada](https://github.com/mrwolf99/verifactu-postgres/actions/runs/36629272215)). En navegadores, sin probar.
 
 ## Cuándo es obligatorio
 
