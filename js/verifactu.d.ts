@@ -8,6 +8,7 @@ export type TipoFactura = "F1" | "F2" | "F3" | "R1" | "R2" | "R3" | "R4" | "R5";
 /** Campos de la huella de un alta, con el texto EXACTO que entra en la cadena (sin recortar ni normalizar). */
 export interface CamposAlta {
   IDEmisorFactura: string;
+  /** De 1 a 60 caracteres del ASCII imprimible (32–126), sin & = < > " ' ni espacios en los extremos. */
   NumSerieFactura: string;
   /** dd-mm-aaaa */
   FechaExpedicionFactura: string;
@@ -112,7 +113,7 @@ export declare class ErrorFormato extends Error {
 
 export declare function cadenaAlta(c: CamposAlta): string;
 export declare function cadenaAnulacion(c: CamposAnulacion): string;
-/** SHA-256 de los bytes UTF-8, en hexadecimal y mayúsculas. WebCrypto; en Node 18, node:crypto. */
+/** SHA-256 de los bytes UTF-8, en hexadecimal y mayúsculas. WebCrypto (en un navegador, solo en contexto seguro); en Node 18, node:crypto. */
 export declare function sha256Hex(texto: string): Promise<string>;
 export declare function huellaRegistro(r: RegistroExportado): Promise<string>;
 export declare function verificarCadena(

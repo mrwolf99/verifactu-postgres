@@ -1,4 +1,4 @@
-// verifactu-postgres 0.1.0 · helper JS sin dependencias ni compilación (Node >= 18, Deno y navegadores).
+// verifactu-postgres 0.1.0 · helper JS sin dependencias ni compilación (Node, Deno y navegadores en contexto seguro).
 //
 // Calcula la cadena y la huella de un registro VERI*FACTU (especificación de la AEAT v0.1.2, 27/08/2024) y
 // verifica una cadena exportada con verifactu.exportar_cadena(). Es ESTRICTO: no normaliza nada. Valida y, si
@@ -15,8 +15,9 @@ const RE_FECHA = /^([0-9]{2})-([0-9]{2})-([0-9]{4})$/;
 const RE_IMPORTE = /^-?(?:0|[1-9][0-9]{0,11})\.[0-9]{2}$/;
 const RE_FECHA_HORA = /^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})([+-])([0-9]{2}):([0-9]{2})$/;
 const RE_HUELLA = /^[0-9A-F]{64}$/;
-// El mismo juego que el SQL: & = < > " ' y los controles U+0000–U+001F y U+007F–U+009F.
-const RE_PROHIBIDOS = /[\u0000-\u001f\u007f-\u009f&=<>"']/;
+// Las mismas reglas que el SQL: solo ASCII imprimible (del 32 al 126) y, dentro de él, ni & = < > " '.
+const RE_NO_ASCII = /[^ -~]/u;
+const RE_PROHIBIDOS = /[&=<>"']/;
 const RE_SURROGADO_SUELTO = /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/;
 
 export class ErrorFormato extends Error {
@@ -54,10 +55,16 @@ function numSerie(campo, v) {
   if (v.startsWith(" ") || v.endsWith(" ")) {
     throw new ErrorFormato(campo, "lleva espacios al principio o al final; la huella se calcula sin ellos y este helper no recorta");
   }
-  if (RE_PROHIBIDOS.test(v)) {
-    throw new ErrorFormato(campo, "lleva un carácter no admitido (& = < > \" ' o un carácter de control)");
-  }
   if (RE_SURROGADO_SUELTO.test(v)) throw new ErrorFormato(campo, "lleva un carácter UTF-16 mal formado");
+  const fuera = RE_NO_ASCII.exec(v);
+  if (fuera) {
+    const cp = fuera[0].codePointAt(0).toString(16).toUpperCase().padStart(4, "0");
+    const pos = [...v.slice(0, fuera.index)].length + 1;
+    throw new ErrorFormato(campo, `lleva U+${cp} en la posición ${pos}: solo admite ASCII imprimible (del 32 al 126)`);
+  }
+  if (RE_PROHIBIDOS.test(v)) {
+    throw new ErrorFormato(campo, "lleva un carácter no admitido (& = < > \" o ')");
+  }
   return v;
 }
 
@@ -144,6 +151,11 @@ export function cadenaAnulacion(c) {
 async function digestoSha256(bytes) {
   const subtle = globalThis.crypto && globalThis.crypto.subtle;
   if (subtle) return new Uint8Array(await subtle.digest("SHA-256", bytes));
+  // Un navegador solo da crypto.subtle en un contexto seguro (HTTPS o localhost): se dice, en vez de fallar
+  // intentando cargar node:crypto.
+  if (!(globalThis.process && globalThis.process.versions && globalThis.process.versions.node)) {
+    throw new Error("verifactu: crypto.subtle no está disponible; en un navegador hace falta un contexto seguro (HTTPS o localhost)");
+  }
   // Node 18 no tiene crypto global de serie: respaldo con node:crypto.
   const nodeCrypto = await import("node:crypto");
   return new Uint8Array(nodeCrypto.createHash("sha256").update(bytes).digest());

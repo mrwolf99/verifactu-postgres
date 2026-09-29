@@ -46,7 +46,8 @@ export async function abrirCluster() {
   const faltan = requeridos.filter((b) => !pgBin || !fs.existsSync(path.join(pgBin, b)));
   if (faltan.length) {
     throw new Error(`PG_BIN tiene que apuntar a la carpeta bin de PostgreSQL; ahí no están: ${faltan.join(", ")}. `
-      + "Por ejemplo: PG_BIN=\"$(pg_config --bindir)\" node test/run.mjs");
+      + "Por ejemplo: PG_BIN=\"$(pg_config --bindir)\" node test/run.mjs, o, si pg_config no está en el PATH, "
+      + "PG_BIN=/Applications/Postgres.app/Contents/Versions/17/bin (Postgres.app) o PG_BIN=/opt/homebrew/opt/postgresql@17/bin (Homebrew)");
   }
   const azar = crypto.randomBytes(3).toString("hex");
   const bin = (nombre) => path.join(pgBin, nombre);

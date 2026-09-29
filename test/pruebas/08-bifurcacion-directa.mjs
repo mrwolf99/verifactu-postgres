@@ -1,6 +1,6 @@
 // Aunque el propietario apague los disparadores (DDL deliberado), las restricciones impiden bifurcar la cadena o
 // cambiar un campo sin rehacer su huella.
-export const descripcion = "Disparadores apagados: una rama con huella correcta da 23505; un campo cambiado, 23514";
+export const descripcion = "Disparadores apagados: una rama con huella correcta da 23505; un campo cambiado o una fecha futura, 23514";
 
 const emitir = (num) => `select seq from verifactu.emitir_alta('89890001K', '${num}', date '2024-01-01', 'F1', 1.00, 2.00)`;
 
@@ -44,6 +44,17 @@ export default async function (t) {
                                      fecha_hora_huso_gen_registro)
       from verifactu.registro where seq = 1`, "23514", "un seq 100 sin huella anterior", { restriccion: "registro_primero" });
   await t.falla(db, colgarDe(13, 5, "SEQ-REPETIDO"), "23505", "un seq ya usado", { restriccion: "registro_seq_unico" });
+  // Un registro colgado del último, con todo correcto (huella incluida) salvo la fecha de expedición, que va por
+  // delante del día en que se selló: solo lo para el CHECK registro_fecha_no_futura.
+  await t.falla(db, `insert into verifactu.registro (emisor_id, seq, tipo_registro, id_emisor_factura, num_serie_factura,
+      fecha_expedicion_factura, tipo_factura, cuota_total, importe_total, subsanacion, huella_anterior,
+      fecha_hora_huso_gen_registro, fecha_hora_gen, huella)
+    select r.emisor_id, 14, 'alta', r.id_emisor_factura, 'FUTURA-14', date '2999-01-01', 'F1', 1.00, 2.00, false, r.huella,
+           r.fecha_hora_huso_gen_registro, r.fecha_hora_gen,
+           verifactu.huella_registro('alta', r.id_emisor_factura, 'FUTURA-14', date '2999-01-01', 'F1', 1.00, 2.00, r.huella,
+                                     r.fecha_hora_huso_gen_registro)
+      from verifactu.registro r where r.seq = 13`, "23514", "una fecha de expedición posterior al día del sellado",
+    { restriccion: "registro_fecha_no_futura" });
 
   // Cambiar un campo sin rehacer la huella: el CHECK recalcula la huella.
   await t.falla(db, "update verifactu.registro set cuota_total = 9.99 where seq = 5", "23514", "cuota cambiada sin rehacer la huella",

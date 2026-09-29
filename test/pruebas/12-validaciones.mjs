@@ -31,8 +31,29 @@ export default async function (t) {
     ["con U+007F", "'A' || chr(127) || 'B'"], ["con salto de línea", "'A' || chr(10) || 'B'"], ["nulo", "null"],
   ];
   for (const [que, num] of nums) await t.falla(db, alta(num), "VF003", `NumSerieFactura ${que}`, { contiene: "NumSerieFactura" });
+
+  // Fuera del ASCII imprimible (validaciones de la AEAT: solo del 32 al 126). Cada uno, con su U+ en el mensaje:
+  // letras que la AEAT rechaza y caracteres que se ven iguales que otros y harían pasar por distintas dos facturas
+  // que se leen igual.
+  const fueraAscii = [
+    ["Ñ", 0xd1], ["º", 0xba], ["É", 0xc9], ["un acento combinante (NFD)", 0x301], ["un espacio duro", 0xa0],
+    ["un espacio de anchura cero", 0x200b], ["un guion que no corta (U+2011)", 0x2011], ["un BOM", 0xfeff],
+    ["U+2028", 0x2028], ["un emoji", 0x1f600],
+  ];
+  for (const [que, cp] of fueraAscii) {
+    const hex = cp.toString(16).toUpperCase().padStart(4, "0");
+    await t.falla(db, alta(`'FAC-' || chr(${cp}) || '1'`), "VF003", `NumSerieFactura con ${que}`, { contiene: `U+${hex} en la posición 5` });
+  }
   await bien(alta(lit("X".repeat(60))), "60 caracteres valen");
-  await bien(alta(lit("X".repeat(59) + "\u{1F600}")), "60 puntos de código con un emoji valen");
+  await bien(alta(lit(" !#$%()*+,-./:;?@[\\]^_`{|}~".trim())), "toda la puntuación admitida vale");
+
+  // Barrido: todos los puntos de código, en medio de un número. Solo quedan los 89 del ASCII imprimible que no son
+  // & = < > " ' (la misma lista que exige js-solo al helper JS).
+  const esperados = [];
+  for (let c = 32; c <= 126; c++) if (!"&=<>\"'".includes(String.fromCharCode(c))) esperados.push(c);
+  const admitidos = await t.uno(db, `select string_agg(i::text, ',' order by i) from generate_series(1, 1114111) i
+    where (i < 55296 or i > 57343) and verifactu.num_serie_valido('A' || chr(i) || 'B')`);
+  t.igual(admitidos, esperados.join(","), "puntos de código que admite num_serie_valido en medio de un número");
   const esp = await bien(alta("'  ESP-1  '"), "espacios exteriores");
   t.igual(esp.num_serie_factura, "ESP-1", "los espacios exteriores se recortan");
 
@@ -54,6 +75,14 @@ export default async function (t) {
   for (const [que, o, campo] of importes) await t.falla(db, alta("'IMP-1'", o), "VF003", que, { contiene: campo });
   const imp = await bien(alta("'IMP-1'", { cuota: "12.300", total: "999999999999.99" }), "12.300 y 999999999999.99 valen");
   t.igual(imp.cuota, "12.30", "12.300 se guarda como 12.30: solo se quitan ceros, nunca se redondea");
+
+  // Fecha de expedición por delante del día del sellado (validaciones de la AEAT: no puede ser posterior a hoy).
+  const hoyMadrid = "(now() at time zone 'Europe/Madrid')::date";
+  await t.falla(db, alta("'FUT-1'", { fecha: `${hoyMadrid} + 2` }), "VF003", "fecha de expedición pasado mañana",
+    { contiene: "FechaExpedicionFactura" });
+  await t.falla(db, alta("'FUT-1'", { fecha: "date '9999-12-31'" }), "VF003", "fecha de expedición en 9999",
+    { contiene: "posterior al día del sellado" });
+  await bien(alta("'FUT-1'", { fecha: hoyMadrid }), "la fecha de hoy vale");
 
   // Fecha y subsanación
   await t.falla(db, alta("'FEC-1'", { fecha: "date '2024-02-31'" }), "22008", "31 de febrero: lo para el tipo date");

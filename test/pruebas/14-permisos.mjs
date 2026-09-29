@@ -1,8 +1,11 @@
-// Permisos de serie: nadie salvo el propietario; solo cuatro SECURITY DEFINER; search_path vacío en todas. Y el
-// peor caso de Supabase simulado: roles con privilegios por defecto globales creados ANTES de instalar.
+// Permisos de serie: nadie salvo el propietario; solo cuatro SECURITY DEFINER; search_path = pg_catalog, pg_temp en
+// todas. Con search_path vacío, pg_temp se consulta ANTES que pg_catalog para los nombres de tipo, y un tipo del
+// esquema temporal de quien llama se resolvería dentro de una función SECURITY DEFINER; con pg_temp explícito y al
+// final, los tipos salen siempre de pg_catalog (es la pauta de la documentación de PostgreSQL para estas funciones).
+// Y el peor caso de Supabase simulado: roles con privilegios por defecto globales creados ANTES de instalar.
 import { ident, lit } from "../lib/contexto.mjs";
 
-export const descripcion = "Nadie salvo el propietario; 4 SECURITY DEFINER; search_path vacío; Supabase simulado";
+export const descripcion = "Nadie salvo el propietario; 4 SECURITY DEFINER; search_path pg_catalog, pg_temp; Supabase simulado";
 
 const AJENOS = `
   select 'esquema verifactu' as objeto, a.grantee, a.privilege_type
@@ -32,10 +35,10 @@ export default async function (t) {
   t.igual(await t.uno(db, `select string_agg(proname, ',' order by proname) from pg_proc
                           where pronamespace = 'verifactu'::regnamespace and prosecdef`),
     "emitir_alta,emitir_anulacion,exportar_cadena,verificar_cadena", "las únicas SECURITY DEFINER");
-  t.igual(await t.uno(db, `select coalesce(string_agg(proname, ','), '') from pg_proc
+  t.igual(await t.uno(db, `select coalesce(string_agg(proname, ',' order by proname), '') from pg_proc
                           where pronamespace = 'verifactu'::regnamespace
-                            and not coalesce('search_path=""' = any(proconfig), false)`),
-    "", "funciones sin search_path vacío");
+                            and not coalesce('search_path=pg_catalog, pg_temp' = any(proconfig), false)`),
+    "", "funciones sin search_path = pg_catalog, pg_temp (pg_temp tiene que ir explícito y al final)");
   t.igual(await t.uno(db, "select has_schema_privilege('public', 'verifactu', 'usage')::text"), "false", "PUBLIC no usa el esquema");
   t.igual(await t.uno(db, "select relrowsecurity::text from pg_class where oid = 'verifactu.registro'::regclass"), "true",
     "RLS activada, sin políticas");

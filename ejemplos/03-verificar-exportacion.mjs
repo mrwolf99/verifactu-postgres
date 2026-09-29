@@ -1,6 +1,6 @@
 // verifactu-postgres · ejemplo 3: verificar una exportación con el helper JS, fuera de la base.
 //
-//   psql -XAt -d <base> -c "select verifactu.exportar_cadena('89890001K')" > cadena.ndjson
+//   PGCLIENTENCODING=UTF8 psql -XAt -d <base> -c "select verifactu.exportar_cadena('89890001K')" > cadena.ndjson
 //   node ejemplos/03-verificar-exportacion.mjs cadena.ndjson 89890001K [seq-del-ancla huella-del-ancla]
 //
 // Sale con 0 si la cadena está bien y con 1 si no, diciendo el primer eslabón roto y por qué.

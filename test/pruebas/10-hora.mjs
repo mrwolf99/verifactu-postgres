@@ -2,7 +2,7 @@
 // escritos, y nunca hacia atrás (hasta un minuto se sella con la del anterior; más, VF006).
 import { lit } from "../lib/contexto.mjs";
 
-export const descripcion = "Hora del sellado (no del BEGIN), husos, cambios de hora, tope de 30 s y VF006 a 2 min";
+export const descripcion = "Hora del sellado (no del BEGIN), husos, cambios de hora, tope, VF006 y fecha de expedición por zona";
 
 export default async function (t) {
   const db = await t.base();
@@ -44,7 +44,7 @@ export default async function (t) {
   }
 
   // 3. El tope, con el reloj fijado.
-  await t.q(db, `create or replace function verifactu._reloj() returns timestamptz language sql volatile set search_path = ''
+  await t.q(db, `create or replace function verifactu._reloj() returns timestamptz language sql volatile set search_path = pg_catalog, pg_temp
                  as $$ select current_setting('vfprueba.reloj')::timestamptz $$`);
   const emitir = async (nif, num, reloj) => {
     await t.q(db, `set vfprueba.reloj = ${lit(reloj)}`);
@@ -69,6 +69,20 @@ export default async function (t) {
   // El tope es por emisor: otro emisor no depende de la hora de este.
   const b1 = await emitir("A00000000", "CANARIAS-1", "2026-06-01T11:50:00Z");
   t.igual(b1.hora, "2026-06-01T12:50:00+01:00", "Canarias en verano, y sin tope heredado de otro emisor");
+
+  // La fecha de expedición no va por delante del día del sellado EN LA ZONA DEL EMISOR. A las 22:30 UTC de un día
+  // de verano, en Madrid ya es el día siguiente (00:30) y en Canarias todavía no (23:30).
+  await t.q(db, "set vfprueba.reloj = '2026-06-01T22:30:00Z'");
+  const emitirFecha = (nif, num, fecha) => `select seq, fecha_hora_huso_gen_registro as hora
+    from verifactu.emitir_alta(${lit(nif)}, ${lit(num)}, date ${lit(fecha)}, 'F1', 1.00, 2.00)`;
+  const [m2] = await t.objetos(db, emitirFecha("89890001K", "DIA-2", "2026-06-02"));
+  t.igual(m2.hora, "2026-06-02T00:30:00+02:00", "Madrid: el 2 de junio ya es hoy");
+  await t.falla(db, emitirFecha("A00000000", "DIA-2", "2026-06-02"), "VF003", "Canarias: el 2 de junio todavía es mañana",
+    { contiene: "posterior al día del sellado (01-06-2026 en Atlantic/Canary)" });
+  const [c1] = await t.objetos(db, emitirFecha("A00000000", "DIA-1", "2026-06-01"));
+  t.igual(c1.hora, "2026-06-01T23:30:00+01:00", "Canarias: el 1 de junio vale");
+  await t.falla(db, emitirFecha("89890001K", "ERRATA-2062", "2062-01-01"), "VF003", "una errata de año (2062) no se sella",
+    { contiene: "FechaExpedicionFactura: 01-01-2062" });
 
   for (const nif of ["89890001K", "A00000000", "B00000000"]) {
     const [ver] = await t.objetos(db, `select * from verifactu.verificar_cadena(${lit(nif)})`);
