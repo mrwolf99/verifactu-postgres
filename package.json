@@ -1,0 +1,23 @@
+{
+  "name": "verifactu-postgres",
+  "version": "0.1.0",
+  "description": "Cadena de huellas VERI*FACTU (SHA-256) dentro de PostgreSQL: sellada por la base, inalterable y verificable. Con helper JS sin dependencias.",
+  "license": "MIT",
+  "author": "Samy Haggag",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./js/verifactu.d.ts",
+      "default": "./js/verifactu.mjs"
+    }
+  },
+  "files": ["js/", "sql/", "README.md", "LICENSE", "CHANGELOG.md", "SECURITY.md"],
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "test": "node test/run.mjs",
+    "test:sabotajes": "node test/run.mjs --sabotajes",
+    "test:js": "node test/js-solo.mjs"
+  },
+  "repository": "github:mrwolf99/verifactu-postgres",
+  "funding": { "type": "github", "url": "https://github.com/sponsors/mrwolf99" }
+}

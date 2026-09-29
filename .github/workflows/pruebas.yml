@@ -1,0 +1,73 @@
+name: pruebas
+
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+# Al publicar el repositorio: fijar cada acción por su SHA en lugar de por la etiqueta (@v4, @v2).
+
+jobs:
+  postgres:
+    name: PostgreSQL ${{ matrix.pg }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        pg: [14, 15, 16, 17, 18]
+    services:
+      postgres:
+        image: postgres:${{ matrix.pg }}
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust   # contenedor desechable del job, sin contraseña
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      VF_PRUEBAS_SERVICIO: '1'
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PG_BIN: /usr/lib/postgresql/${{ matrix.pg }}/bin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: denoland/setup-deno@v2
+      - name: cliente psql, pg_dump y pg_restore de la misma versión
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y postgresql-client-${{ matrix.pg }}
+      - name: pruebas
+        run: node test/run.mjs
+      - name: sabotajes
+        if: matrix.pg == 17
+        run: node test/run.mjs --sabotajes
+
+  js:
+    name: helper JS · Node ${{ matrix.node }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [18, 20, 22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - run: node test/js-solo.mjs
+
+  deno:
+    name: helper JS · Deno
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+      - run: deno run --allow-read test/js-solo.mjs
