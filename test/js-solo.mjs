@@ -93,6 +93,16 @@ const rechazos = [
   ["NumSerieFactura con U+0085", { NumSerieFactura: "A\u0085B" }, "NumSerieFactura"],
   ["NumSerieFactura de 61", { NumSerieFactura: "X".repeat(61) }, "NumSerieFactura"],
   ["NumSerieFactura con surrogado suelto", { NumSerieFactura: "A\ud800B" }, "NumSerieFactura"],
+  ["NumSerieFactura con Ñ", { NumSerieFactura: "FAC-\u00d1/1" }, "NumSerieFactura"],
+  ["NumSerieFactura con º", { NumSerieFactura: "FACTURA N\u00ba 7" }, "NumSerieFactura"],
+  ["NumSerieFactura con acento combinante", { NumSerieFactura: "FACTURA-E\u0301" }, "NumSerieFactura"],
+  ["NumSerieFactura con espacio duro", { NumSerieFactura: "FAC\u00a01" }, "NumSerieFactura"],
+  ["NumSerieFactura con espacio de anchura cero", { NumSerieFactura: "FAC-1\u200b" }, "NumSerieFactura"],
+  ["NumSerieFactura con U+2011", { NumSerieFactura: "FAC\u20111" }, "NumSerieFactura"],
+  ["NumSerieFactura con BOM", { NumSerieFactura: "\ufeffFAC-1" }, "NumSerieFactura"],
+  ["NumSerieFactura con U+2028", { NumSerieFactura: "FAC\u20281" }, "NumSerieFactura"],
+  ["NumSerieFactura con emoji", { NumSerieFactura: "TICKET \u{1F600} 3" }, "NumSerieFactura"],
+  ["NumSerieFactura con DEL", { NumSerieFactura: "FAC\u007f1" }, "NumSerieFactura"],
   ["hora con Z", { FechaHoraHusoGenRegistro: "2024-01-01T18:20:30Z" }, "FechaHoraHusoGenRegistro"],
   ["hora con fracciones", { FechaHoraHusoGenRegistro: "2024-01-01T19:20:30.5+01:00" }, "FechaHoraHusoGenRegistro"],
   ["TipoFactura f1", { TipoFactura: "f1" }, "TipoFactura"],
@@ -106,9 +116,36 @@ for (const [nombre, cambio, campo] of rechazos) {
   const r = await lanza(() => v.cadenaAlta({ ...base, ...cambio }), campo);
   comprobar(r === true, `rechazo «${nombre}»: ${r}`);
 }
-const sesenta = "X".repeat(59) + "\u{1F600}";
-comprobar(v.cadenaAlta({ ...base, NumSerieFactura: sesenta }).includes(sesenta),
-  "60 puntos de código (61 unidades UTF-16) tienen que valer");
+const sesenta = "!#$%()*+,-./:;?@[\\]^_`{|}~".repeat(2) + "01234567";
+comprobar(v.cadenaAlta({ ...base, NumSerieFactura: sesenta }).includes(sesenta), "60 caracteres ASCII tienen que valer");
+{
+  // El mensaje nombra el carácter y su posición (en puntos de código), como el SQL.
+  let mensaje = "no lanzó";
+  try {
+    v.cadenaAlta({ ...base, NumSerieFactura: "AB\u{1F600}\u00d1" });
+  } catch (e) {
+    mensaje = e.message;
+  }
+  comprobar(/U\+1F600 en la posición 3/.test(mensaje), `el mensaje no nombra U+1F600 en la posición 3: ${mensaje}`);
+}
+{
+  // Barrido: todos los puntos de código en medio de un número. Solo valen los 89 del ASCII imprimible que no son
+  // & = < > " ' (la misma lista que exige 12-validaciones al SQL).
+  const esperados = [];
+  for (let c = 32; c <= 126; c++) if (!"&=<>\"'".includes(String.fromCharCode(c))) esperados.push(c);
+  const admitidos = [];
+  for (let c = 1; c <= 0x10ffff; c++) {
+    if (c >= 0xd800 && c <= 0xdfff) continue;
+    try {
+      v.cadenaAlta({ ...base, NumSerieFactura: "A" + String.fromCodePoint(c) + "B" });
+      admitidos.push(c);
+    } catch (e) {
+      if (!(e instanceof v.ErrorFormato) || e.campo !== "NumSerieFactura") throw e;
+    }
+  }
+  comprobar(admitidos.join(",") === esperados.join(","),
+    `puntos de código admitidos en NumSerieFactura: ${admitidos.length} (se esperaban ${esperados.length})`);
+}
 
 // ── 4. El fixture que exporta la base ──────────────────────────────────────────────────────────────────────
 const nFixture = fixture.length;

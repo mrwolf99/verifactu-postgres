@@ -7,6 +7,9 @@
 --
 -- PostgREST abre una transacción READ COMMITTED por llamada: dos emisiones a la vez se encadenan en serie.
 --
+-- search_path = pg_catalog, pg_temp, como las funciones de la librería: en una SECURITY DEFINER, pg_temp tiene
+-- que ir explícito y al final para que los nombres de tipo salgan siempre de pg_catalog.
+--
 -- Probado en un PostgreSQL corriente, simulando auth.jwt() y los roles anon y authenticated (test/pruebas/16).
 -- Contra un proyecto de Supabase real: sin probar.
 
@@ -14,7 +17,7 @@ create or replace function public.verifactu_emitir_alta(
   p_num_serie_factura text, p_fecha_expedicion_factura date, p_tipo_factura text,
   p_cuota_total numeric, p_importe_total numeric, p_subsanacion boolean default false)
 returns json
-language plpgsql security definer set search_path = ''
+language plpgsql security definer set search_path = pg_catalog, pg_temp
 as $$
 declare
   v_nif text := (select auth.jwt()) -> 'app_metadata' ->> 'verifactu_nif';

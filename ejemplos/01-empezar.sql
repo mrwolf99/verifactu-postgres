@@ -25,8 +25,9 @@ select seq, huella
 select seq, huella
   from verifactu.emitir_anulacion('89890001K', '12345679/G34', date '2024-01-01');
 
--- 4. Exportar: una línea JSON por registro, con los nombres de la AEAT. Para un fichero NDJSON:
---      psql -XAt -d <base> -c "select verifactu.exportar_cadena('89890001K')" > cadena.ndjson
+-- 4. Exportar: una línea JSON por registro, con los nombres de la AEAT. Para un fichero NDJSON (con
+--    PGCLIENTENCODING=UTF8, para que psql no lo convierta a la codificación del terminal):
+--      PGCLIENTENCODING=UTF8 psql -XAt -d <base> -c "select verifactu.exportar_cadena('89890001K')" > cadena.ndjson
 --    (con COPY no: su formato de texto duplica las barras invertidas y el JSON deja de ser el mismo).
 select verifactu.exportar_cadena('89890001K');
 

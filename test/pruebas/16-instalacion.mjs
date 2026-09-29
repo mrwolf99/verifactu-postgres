@@ -34,7 +34,10 @@ export default async function (t) {
   t.ok(/^t\|4\|/m.test(r1.salida.replace(/ /g, "")),
     `ejemplos/01: la verificación final no dice ok con 4 registros:\n${r1.salida.split("\n").slice(-6).join("\n")}`);
   const ndjson = path.join(t.tmp, "cadena.ndjson");
-  const r2 = await t.ejecutar(psql, ["-X", "-A", "-t", "-d", e1, "-o", ndjson, "-c", "select verifactu.exportar_cadena('89890001K')"]);
+  // Como dice el README: con PGCLIENTENCODING=UTF8, para que psql no convierta la salida a la página de códigos del
+  // terminal (el caso de serie en Windows).
+  const r2 = await t.ejecutar(psql, ["-X", "-A", "-t", "-d", e1, "-o", ndjson, "-c", "select verifactu.exportar_cadena('89890001K')"],
+    { env: { PGCLIENTENCODING: "UTF8" } });
   t.ok(r2.codigo === 0, `exportar con psql -At: ${r2.error}`);
   const ejemplo3 = path.join(t.raiz, "ejemplos/03-verificar-exportacion.mjs");
   const r3 = await t.ejecutar(process.execPath, [ejemplo3, ndjson, "89890001K"]);

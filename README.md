@@ -4,11 +4,12 @@
 
 Si la huella de un registro no coincide con la que calcula la AEAT, el registro queda «Aceptado con errores» (especificación de la huella, §7). Aquí la huella la calcula y la encadena la base, en el mismo sitio donde se guarda el registro, y un `UPDATE` o un `DELETE` no pueden deshacerla por error.
 
-> **Estado: 0.1.0, sin publicar.** No se ha usado todavía en producción: revísalo antes de confiarle nada. Conforme a la [especificación de la huella de la AEAT v0.1.2 (27/08/2024)](https://www.agenciatributaria.es/static_files/AEAT_Desarrolladores/EEDD/IVA/VERI-FACTU/Veri-Factu_especificaciones_huella_hash_registros.pdf). Lee el [aviso legal](#aviso-legal) antes de usarlo.
+> **Estado: 0.1.0, primera versión.** No se ha usado todavía en producción ni se ha probado contra el entorno de preproducción de la AEAT: revísalo antes de confiarle nada. Conforme a la [especificación de la huella de la AEAT v0.1.2 (27/08/2024)](https://www.agenciatributaria.es/static_files/AEAT_Desarrolladores/EEDD/IVA/VERI-FACTU/Veri-Factu_especificaciones_huella_hash_registros.pdf). Lee el [aviso legal](#aviso-legal) antes de usarlo.
 
 ## Índice
 
 - [Qué hace y qué no hace](#qué-hace-y-qué-no-hace)
+- [Cuándo es obligatorio](#cuándo-es-obligatorio)
 - [Instalación](#instalación)
 - [Uso](#uso)
 - [Los tres ejemplos oficiales](#los-tres-ejemplos-oficiales)
@@ -16,6 +17,7 @@ Si la huella de un registro no coincide con la que calcula la AEAT, el registro 
 - [Errores](#errores)
 - [Qué puede y qué no un superusuario](#qué-puede-y-qué-no-un-superusuario)
 - [La hora](#la-hora)
+- [Actualizar](#actualizar)
 - [Pruebas y sabotajes](#pruebas-y-sabotajes)
 - [Comparativa](#comparativa)
 - [Aviso legal](#aviso-legal)
@@ -26,15 +28,28 @@ Si la huella de un registro no coincide con la que calcula la AEAT, el registro 
 
 | Hace | No hace |
 |---|---|
-| Calcula la huella SHA-256 de altas y anulaciones exactamente como la especificación v0.1.2 | Generar ni firmar el XML (XAdES), ni el código QR |
+| Calcula la huella SHA-256 de altas y anulaciones exactamente como la especificación v0.1.2 | Generar el XML ni el código QR. Tampoco firma: en VERI\*FACTU los registros no se firman, basta la huella (RRSIF, art. 16.3); la firma XAdES es de la modalidad NO VERI\*FACTU |
 | Encadena cada registro con el anterior del **mismo emisor** (una cadena por NIF, altas y anulaciones mezcladas) | **Enviar nada a la AEAT** |
 | Sella la hora con el reloj del servidor, en la zona del emisor, sin retroceder nunca | El registro de eventos (en VERI\*FACTU no hace falta) |
 | Impide bifurcar la cadena, también con varias emisiones a la vez | Validar la letra de control del NIF (la AEAT valida contra el censo) |
-| Impide `UPDATE`, `DELETE` y `TRUNCATE` sobre los registros, también al propietario y al superusuario | Importar una cadena de otro sistema |
-| Exporta la cadena en JSON con los nombres de campo de la AEAT | Defenderse de un administrador que usa DDL a propósito (ver [superusuario](#qué-puede-y-qué-no-un-superusuario)) |
-| Verifica la cadena en SQL y en JS y dice el primer eslabón roto y por qué | Aceptar `&` en `NumSerieFactura` (ver [más abajo](#la-especificación-regla-a-regla)) |
+| Impide `UPDATE`, `DELETE` y `TRUNCATE` sobre los registros, también al propietario y al superusuario (salvo DDL deliberado: ver [superusuario](#qué-puede-y-qué-no-un-superusuario)) | Importar una cadena de otro sistema |
+| Rechaza en `NumSerieFactura` lo que la AEAT rechaza: fuera del ASCII imprimible (32–126), `"`, `'`, `<`, `>` y `=`; y además `&` (ver [más abajo](#la-especificación-regla-a-regla)) | Defenderse de un administrador que usa DDL a propósito |
+| Rechaza una `FechaExpedicionFactura` posterior al día del sellado | Imponer la fecha mínima de la AEAT (28-10-2024): los ejemplos oficiales son de 2024 y las pruebas los reproducen. Esa validación es tuya |
+| Exporta la cadena en JSON con los nombres de campo de la AEAT | Anular una factura sin alta previa en esta cadena (`SinRegistroPrevio = S` del XSD): da VF005 |
+| Verifica la cadena en SQL y en JS y dice el primer eslabón roto y por qué | Sellar con husos distintos para un mismo NIF: hay **una zona por emisor**. Si facturas desde Canarias y desde la Península con el mismo NIF, la hora de una de las dos no irá en el huso de su territorio (Orden HAC/1177/2024, art. 7.e) |
 
-Sin extensiones: usa `sha256()` y `convert_to()` del núcleo (PostgreSQL 11+), sin `pgcrypto`. Necesita **PostgreSQL 14 o posterior** y una base en **UTF8**.
+Sin extensiones: usa `sha256()` y `convert_to()` del núcleo, sin `pgcrypto`. La instalación exige **PostgreSQL 14 o posterior** y una base en **UTF8**.
+
+**Dónde se ha probado:** PostgreSQL 17.11, Node 24 y Deno 2.9, en macOS. La CI ([`.github/workflows/pruebas.yml`](.github/workflows/pruebas.yml)) está configurada para PostgreSQL 14 a 18 y Node 18 a 24, **pendiente de su primera pasada**. En navegadores, sin probar.
+
+## Cuándo es obligatorio
+
+Lo fija la disposición final cuarta del Real Decreto 1007/2023, en la redacción del Real Decreto-ley 15/2025 (a 29-09-2026):
+
+- Contribuyentes del Impuesto sobre Sociedades (art. 3.1.a del Reglamento): sistemas adaptados **antes del 1 de enero de 2027**.
+- El resto de obligados del art. 3.1: sistemas operativos **antes del 1 de julio de 2027**.
+
+Estas fechas ya han cambiado más de una vez. Compruébalas en el [texto consolidado del BOE](https://www.boe.es/buscar/act.php?id=BOE-A-2023-24840) antes de planificar nada.
 
 ## Instalación
 
@@ -49,6 +64,9 @@ Es un script SQL plano, no una extensión: un `DROP EXTENSION` podría llevarse 
 Queda todo en el esquema `verifactu`, y **nadie salvo el propietario** tiene permisos: ni `PUBLIC` ni ningún rol que tuviera privilegios por defecto. Tú concedes lo justo:
 
 ```sql
+-- mi_app y mi_auditoria son tus roles. Si todavía no existen:
+--   create role mi_app login;  create role mi_auditoria login;
+
 -- la aplicación emite, y nada más
 grant usage on schema verifactu to mi_app;
 grant execute on function verifactu.emitir_alta(text, text, date, text, numeric, numeric, boolean),
@@ -60,7 +78,13 @@ grant execute on function verifactu.exportar_cadena(text, bigint),
                           verifactu.verificar_cadena(text, bigint, text) to mi_auditoria;
 ```
 
-Ningún rol toca las tablas directamente: las cuatro funciones de la API son `SECURITY DEFINER` con `search_path` vacío.
+Ningún rol toca las tablas directamente: las cuatro funciones de la API son `SECURITY DEFINER`. Todas las funciones fijan `search_path = pg_catalog, pg_temp`, que es la pauta de la documentación de PostgreSQL para este tipo de funciones: con un `search_path` vacío, el esquema temporal de quien llama se consultaría **antes** que `pg_catalog` al resolver nombres de tipo; con `pg_temp` explícito y al final, no.
+
+Como refuerzo, si en esa base ningún rol de la aplicación necesita tablas temporales, quítales el permiso (afecta a toda la base, decídelo tú):
+
+```sql
+revoke temporary on database mi_base from public;
+```
 
 ### Supabase
 
@@ -73,13 +97,16 @@ Ningún rol toca las tablas directamente: las cuatro funciones de la API son `SE
 
 ### El helper JS
 
-Un solo fichero, [`js/verifactu.mjs`](js/verifactu.mjs), sin compilación ni dependencias, con sus tipos en [`js/verifactu.d.ts`](js/verifactu.d.ts). Funciona en Node 18 o posterior, en Deno y en navegadores (WebCrypto; en Node 18, `node:crypto`). En la 0.1.0 se distribuye solo por GitHub:
+Un solo fichero, [`js/verifactu.mjs`](js/verifactu.mjs), sin compilación ni dependencias, con sus tipos en [`js/verifactu.d.ts`](js/verifactu.d.ts). Usa WebCrypto y, en Node 18, `node:crypto`. En la 0.1.0 se distribuye solo por GitHub:
 
 ```bash
 npm install github:mrwolf99/verifactu-postgres
 ```
 
 O copia el fichero: no tiene nada más.
+
+- **Deno:** no está en npm, así que `npm:` no sirve. Copia `js/verifactu.mjs` e impórtalo por ruta (`import { verificarCadena } from "./verifactu.mjs";`).
+- **Navegador:** `crypto.subtle` solo existe en un contexto seguro (HTTPS o `localhost`). Servido por `http://` desde otra dirección, el helper falla con un error que lo dice.
 
 ## Uso
 
@@ -106,19 +133,22 @@ select * from verifactu.verificar_cadena('89890001K');
 
 Usa `emitir_*` con `select ... from`. Con la forma `select (verifactu.emitir_alta(...)).*`, PostgreSQL llama a la función **una vez por columna**. La segunda llamada la para la propia librería con VF004 (el alta ya está vigente), pero la sentencia falla.
 
-**El emisor.** El `nif` no cambia nunca: un NIF nuevo es un emisor nuevo, con su propia cadena. Para dejar de emitir, `update verifactu.emisor set activo = false`. Zonas admitidas: `Europe/Madrid` (por defecto), `Atlantic/Canary` y `Africa/Ceuta`. Del NIF solo se valida la forma: nueve caracteres, en mayúsculas, sin espacios.
+**El emisor.** El `nif` no cambia nunca: un NIF nuevo es un emisor nuevo, con su propia cadena. Para dejar de emitir, `update verifactu.emisor set activo = false`. Zonas admitidas: `Europe/Madrid` (por defecto), `Atlantic/Canary` y `Africa/Ceuta`, una por emisor. Del NIF solo se valida la forma: nueve caracteres, en mayúsculas, sin espacios.
 
 **Los importes** son `numeric` y se escriben siempre con dos decimales (`12.3` sale `12.30`, `7` sale `7.00`). Nunca se redondean: con más de dos decimales significativos la emisión falla con VF003 (`12.300` vale, `12.345` no).
 
-**El número de serie** admite de 1 a 60 caracteres, contados como `char_length`. Se le quitan los espacios del principio y del final, igual que en la especificación. Los interiores se conservan.
+**El número de serie** admite de 1 a 60 caracteres del **ASCII imprimible** (del 32 al 126), como exigen las validaciones de la AEAT (documento de validaciones y errores v1.2.2, IDFactura del alta), salvo `"`, `'`, `<`, `>`, `=` y `&`. Una `Ñ`, una `º`, una tilde, un emoji, un espacio duro o un carácter invisible dan VF003, y el mensaje dice cuál (`U+00D1 en la posición 5`). Así tampoco pueden entrar como facturas distintas dos números que se leen igual. Se le quitan los espacios del principio y del final, igual que en la especificación de la huella; los interiores se conservan.
+
+**La fecha de expedición** no puede ser posterior al día del sellado en la zona del emisor (la AEAT rechaza el registro). Da VF003 y no se sella nada: una errata de año (`2062` por `2026`) no queda para siempre en la cadena.
 
 **Exportar a un fichero NDJSON:**
 
 ```bash
-psql -XAt -d mi_base -c "select verifactu.exportar_cadena('89890001K')" > cadena.ndjson
+PGCLIENTENCODING=UTF8 psql -XAt -d mi_base -c "select verifactu.exportar_cadena('89890001K')" > cadena.ndjson
 ```
 
-Con `COPY ... TO STDOUT` no: su formato de texto duplica las barras invertidas y el JSON deja de ser el mismo.
+- Fija `PGCLIENTENCODING=UTF8`. Si no, `psql` convierte la salida a la codificación del terminal, que en Windows no es UTF-8. Con el número de serie limitado a ASCII, la exportación de la 0.1.0 es ASCII entera, pero no dependas de eso.
+- Con `COPY ... TO STDOUT` no: su formato de texto duplica las barras invertidas y el JSON deja de ser el mismo.
 
 Un registro exportado (el caso oficial 2):
 
@@ -137,14 +167,23 @@ En modalidad VERI\*FACTU la AEAT guarda las huellas que recibe, y eso hace de an
 ### JS
 
 ```js
-import { verificarCadena, huellaRegistro, cadenaAlta, sha256Hex } from "verifactu-postgres";
+import { readFileSync } from "node:fs";
+import { verificarCadena } from "verifactu-postgres";
 
-const registros = texto.split("\n").filter(Boolean).map((l) => JSON.parse(l)); // la exportación
-const r = await verificarCadena(registros, { nif: "89890001K", ancla: { seq: 15, huella: "..." } });
-if (!r.ok) console.log(`roto en el ${r.seq}: ${r.motivo} (${r.detalle})`);
+// cadena.ndjson: la exportación de verifactu.exportar_cadena() (ver «Exportar a un fichero NDJSON»).
+const registros = readFileSync("cadena.ndjson", "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
+
+// El ancla es opcional: un seq y su huella (ultima_huella) guardados FUERA de la base.
+// const r = await verificarCadena(registros, { nif: "89890001K", ancla: { seq: 14, huella: "<64 hexadecimales>" } });
+const r = await verificarCadena(registros, { nif: "89890001K" });
+if (r.ok) console.log(`ok: ${r.revisados} registros`);
+else console.log(`roto en el ${r.seq}: ${r.motivo} (${r.detalle})`);
 ```
 
-El helper es **estricto**: no recorta ni redondea nada. Si un campo no tiene la forma exacta que escribe la base (`12.3`, un espacio al final, la hora con `Z`, `f1`...), lanza `ErrorFormato` nombrando el campo. Así no puede divergir del SQL por un recorte distinto; el `trim()` de JS, por ejemplo, quita también el espacio duro y el de Java no.
+El helper es **estricto**: no recorta ni redondea nada. Así no puede divergir del SQL por un recorte distinto; el `trim()` de JS, por ejemplo, quita también el espacio duro y el de Java no.
+
+- `cadenaAlta`, `cadenaAnulacion` y `huellaRegistro` **lanzan** `ErrorFormato` si un campo no tiene la forma exacta que escribe la base (`12.3`, un espacio al final, la hora con `Z`, `f1`...). El error nombra el campo en `e.campo`.
+- `verificarCadena` **no lanza** por los datos: devuelve `{ ok: false, motivo: "formato" }` en el primer registro mal formado. Solo lanza `ErrorFormato` si están mal las opciones (`nif`, `ancla`, `ahora`).
 
 `verificarCadena` da los mismos motivos, en el mismo orden, que `verificar_cadena`, con dos diferencias a propósito:
 
@@ -155,17 +194,19 @@ Tienes un ejemplo completo en [`ejemplos/03-verificar-exportacion.mjs`](ejemplos
 
 ### Motivos de verificación
 
-| Motivo | Qué detecta | Lista L1E |
+La última columna relaciona cada motivo con el tipo de anomalía más cercano de la lista L1E del anexo de la Orden HAC/1177/2024 (la del registro de eventos, que en VERI\*FACTU no se exige). Es una correspondencia orientativa, no un código que la librería emita.
+
+| Motivo | Qué detecta | L1E |
 |---|---|---|
-| `secuencia` | falta un registro, o la cadena no empieza en 1 | cadena |
+| `secuencia` | falta un registro, o la cadena no empieza en 1 | 04 |
 | `encadenamiento` | la huella anterior de un registro no es la del registro previo | 07–09 |
 | `emisor` | un registro con otro NIF | — |
 | `formato` | (solo JS) un campo sin la forma exacta | — |
 | `huella` | la huella guardada no es la que sale de los datos | 01 |
 | `fecha_hora_retrocede` | la hora es anterior a la del registro previo | 11 |
-| `fecha_hora_futura` | la hora va más de un minuto por delante del reloj | fechas |
+| `fecha_hora_futura` | la hora va más de un minuto por delante del reloj | 13 |
 | `regla_apertura` | anulación o subsanación sin alta vigente, o alta repetida | — |
-| `cola` | (solo SQL) falta el final de la cadena | — |
+| `cola` | (solo SQL) falta el final de la cadena | 05 |
 | `ancla` | el registro anclado no existe o su huella no es la anclada | — |
 
 ## Los tres ejemplos oficiales
@@ -186,7 +227,11 @@ select verifactu.huella_registro('alta', '89890001K', '12345678/G33', date '2024
 
 ## La especificación, regla a regla
 
-| Regla | Dónde se cumple |
+Las tablas dicen **qué hace el código** y dónde. No dicen que un sistema que lo use cumpla la normativa: eso lo declara quien lo produce (ver el [aviso legal](#aviso-legal)).
+
+**La huella** (especificación v0.1.2):
+
+| Regla | Qué hace la librería |
 |---|---|
 | Orden de los campos del alta (8) y de la anulación (5), §3 | `verifactu.cadena_alta`, `verifactu.cadena_anulacion`; `cadenaAlta`, `cadenaAnulacion` en JS |
 | `campo=valor` unidos por `&`, sin codificar | las mismas |
@@ -196,14 +241,25 @@ select verifactu.huella_registro('alta', '89890001K', '12345678/G33', date '2024
 | Importes: uno o dos decimales valen igual; aquí siempre dos, sin `+` | `verifactu.formato_importe`; CHECK `registro_campos` |
 | `FechaExpedicionFactura` en dd-mm-aaaa | `verifactu.formato_fecha` |
 | `FechaHoraHusoGenRegistro` en ISO 8601 con huso | `verifactu.formato_fecha_hora`; CHECK `registro_fecha_hora` |
-| Una cadena por sistema y obligado, con altas y anulaciones mezcladas (Orden HAC/1177/2024, art. 7.c y 7.d) | tabla `verifactu.emisor`; `UNIQUE (emisor_id, seq)` |
-| El primer registro se identifica como tal (7.b) | `seq = 1`; `"PrimerRegistro":"S"` en la exportación |
-| Cada registro lleva NIF, serie, fecha y huella del anterior (7.a) | `RegistroAnterior` en `exportar_cadena` |
-| Fecha y hora exactas, con margen de un minuto, y sin retroceder (7.e a 7.h) | paso 5 de `tg_sellar`; motivos `fecha_hora_*` |
-| Comprobar el último registro antes de generar uno nuevo (7.i) | paso 3 de `tg_sellar` (VF007) |
-| Inalterabilidad (RD 1007/2023, art. 8.2.a) | privilegios, disparador `registro_inalterable` y el CHECK que recalcula la huella |
 
-**El `&` en `NumSerieFactura`.** Las validaciones de la AEAT prohíben `"`, `'`, `<`, `>` y `=`, pero no `&`. Aquí se rechaza, porque la cadena de la huella no se escapa y un `&` en el valor la haría ambigua. Si algún día se admite, las cadenas ya emitidas siguen valiendo. Al revés no pasaría: prohibirlo después dejaría cadenas con registros que ya no se aceptan. También se rechazan los caracteres de control (U+0001–U+001F y U+007F–U+009F).
+**El encadenamiento** (Orden HAC/1177/2024, art. 7):
+
+| Regla | Qué hace la librería |
+|---|---|
+| Cada registro lleva NIF, serie, fecha y huella del anterior (7.a) | `RegistroAnterior` en `exportar_cadena` |
+| El primer registro se identifica como tal (7.b) | `seq = 1`; `"PrimerRegistro":"S"` en la exportación |
+| Una cadena por sistema y obligado, con altas y anulaciones mezcladas (7.c y 7.d) | tabla `verifactu.emisor`; `UNIQUE (emisor_id, seq)` |
+| Fecha y hora exactas del momento de generación, según el territorio de expedición (7.e) | el reloj del servidor al sellar, en la zona del emisor (una por NIF: ver «No hace») |
+| La hora incluye el huso aplicado (7.g) | `±hh:mm` en `FechaHoraHusoGenRegistro` |
+
+En modalidad VERI\*FACTU, el art. 3 de la Orden deja fuera los arts. 6.b a 6.f, 7.f, 7.h, 7.i, 7.j, 8 y 9. Aun así, la librería hace algunas de esas cosas porque protegen la cadena, no porque se las exija la norma en esa modalidad: comprueba la cola antes de encadenar (VF007) y no deja que la hora retroceda (VF006). Lo que no hace:
+
+- 7.f: que el reloj sea exacto, con un minuto de error como mucho, es obligación del usuario del sistema. Sincroniza el servidor (NTP).
+- 7.h: el seguimiento de la cadena hacia delante y hacia atrás es cosa de la interfaz de tu sistema. La librería da la exportación en orden de `seq`.
+
+Sobre la inalterabilidad, el art. 8.2.a del Reglamento aprobado por el RD 1007/2023 (RRSIF) pide que un registro no se pueda alterar sin que el sistema lo detecte. En VERI\*FACTU, el art. 16.2 del mismo Reglamento presume que eso se cumple por diseño. La librería añade sus propias capas: privilegios, el disparador `registro_inalterable` y el CHECK que recalcula la huella.
+
+**El `&` en `NumSerieFactura`.** Las validaciones de la AEAT prohíben `"`, `'`, `<`, `>` y `=`, pero no `&`. Aquí se rechaza **por prudencia**. No es que rompa la huella: como el `=` está prohibido, el primer `=` que sigue a `NumSerieFactura=` es el de `&FechaExpedicionFactura=`, y la cadena se puede seguir leyendo sin ambigüedad. El motivo es que no se ha comprobado contra la AEAT que un `&` en el valor dé allí la misma huella. Si algún día se admite, las cadenas ya emitidas siguen valiendo. Al revés no pasaría: prohibirlo después dejaría cadenas con registros que ya no se aceptan.
 
 ## Errores
 
@@ -213,7 +269,7 @@ Las funciones fallan con una excepción, nunca con un resultado a medias: la tra
 |---|---|
 | `VF001` | inalterable: no se modifica ni se borra |
 | `VF002` | emisor desconocido o desactivado |
-| `VF003` | formato; el mensaje nombra el campo (`NumSerieFactura`, `CuotaTotal`...) |
+| `VF003` | formato o valor no admitido; el mensaje nombra el campo (`NumSerieFactura`, `CuotaTotal`, `FechaExpedicionFactura`...) |
 | `VF004` | la factura ya tiene un alta vigente (para corregirla, subsanación) |
 | `VF005` | la factura no tiene un alta vigente (para anularla o subsanarla) |
 | `VF006` | el reloj del servidor va más de un minuto por detrás del último registro |
@@ -233,10 +289,12 @@ La base no puede defenderse de su administrador. Lo que ofrece es que alterar la
 | `INSERT` directo | 42501 | se sella igual; si fija huella o seq, VF008 | igual |
 | `TRUNCATE emisor CASCADE` / borrar un emisor con registros | 42501 | VF001 / 23503 | igual |
 | Cambiar un campo con los disparadores apagados | — | 23514: el CHECK recalcula la huella | igual |
-| Meter una rama con los disparadores apagados | — | 23505 | igual |
+| Meter una rama, o una fecha de expedición futura, con los disparadores apagados | — | 23505 / 23514 | igual |
 | `DISABLE TRIGGER`, `DROP CONSTRAINT`, reemplazar funciones | — | **puede** | **puede** |
 | Reescribir la cadena desde un punto, o restaurar una copia vieja | — | **puede**: solo lo ve un [ancla](#uso) | **puede** |
 | Tocar los ficheros de datos | — | — | **puede** |
+
+El rol de la aplicación solo llega a las cuatro funciones que le concedas, y esas funciones no resuelven nombres de tipo en su esquema temporal (ver [Instalación](#postgresql)).
 
 Se detecta al verificar:
 
@@ -251,8 +309,13 @@ Se detecta al verificar:
 - `FechaHoraHusoGenRegistro` es el reloj del servidor **en el instante de sellar**: `clock_timestamp()`, tomado después del candado y truncado a segundos. No se usa `now()`, que es la hora del `BEGIN`: una transacción que espera el candado sellaría con una hora anterior a la del registro que la precede.
 - Se escribe en la zona del emisor, con `±hh:mm` y sin `Z` ni fracciones. Los cambios de hora salen bien: `2024-10-27T02:59:59+02:00` va seguido de `2024-10-27T02:00:00+01:00`.
 - **Nunca retrocede.** Si el reloj va hasta un minuto por detrás del último registro, se sella con la hora de ese registro. Si va más de un minuto por detrás, VF006 y no se emite nada.
+- La fecha de expedición se compara con el día del sellado **en la zona del emisor**: a las 00:30 del día 2 en Madrid todavía es el día 1 en Canarias.
 - El servidor tiene que tener el reloj sincronizado (NTP). La AEAT avisa de horas futuras, y `verificar_cadena` las marca a partir de un minuto.
 - Las emisiones de un mismo emisor van en serie por diseño (el candado es la fila del emisor). Las de emisores distintos no se esperan.
+
+## Actualizar
+
+La 0.1.0 es la primera versión: no hay nada que actualizar. Reinstalar no es la vía, porque la instalación aborta si el esquema ya existe, para no tocar la cadena. Cuando haya una versión nueva, traerá su propio script de actualización y el [CHANGELOG](CHANGELOG.md) dirá cómo aplicarlo.
 
 ## Pruebas y sabotajes
 
@@ -262,47 +325,52 @@ PG_BIN="$(pg_config --bindir)" node test/run.mjs --sabotajes  # cada sabotaje po
 node test/js-solo.mjs                                         # solo el helper JS, sin PostgreSQL
 ```
 
+Si `pg_config` no está en el `PATH`, pon la carpeta a mano: con Postgres.app, `PG_BIN=/Applications/Postgres.app/Contents/Versions/17/bin`; con Homebrew, `PG_BIN=/opt/homebrew/opt/postgresql@17/bin`.
+
 Sin dependencias. `node test/run.mjs` crea un clúster **desechable** y lo borra al terminar:
 
 - `initdb` en un directorio temporal, con un puerto libre al azar.
 - Solo escucha por socket Unix.
 - Quita del entorno las variables `PG*` heredadas: no puede apuntar a una base que ya exista.
 
-Cada prueba recibe una base recién instalada.
+Cada prueba recibe una base recién instalada. El resumen cuenta aparte las notas NO MIRADO: lo que una prueba no ha podido comprobar se dice, aunque no la ponga en rojo.
 
 | Prueba | Qué comprueba |
 |---|---|
 | 01 | Los ejemplos oficiales por SQL, cadena carácter a carácter |
 | 02 | Los ejemplos oficiales por `emitir_*` con el reloj fijado; la exportación, byte a byte con el fixture |
-| 03 | El helper JS en Node (WebCrypto y el respaldo `node:crypto`) y en Deno |
-| 04 | Cadena rica con dos emisores; paridad SQL–JS fila a fila |
+| 03 | El helper JS en Node (WebCrypto y el respaldo `node:crypto`) y en Deno, con el barrido de todos los puntos de código en `NumSerieFactura` |
+| 04 | Cadena rica con dos emisores y toda la puntuación admitida; paridad SQL–JS fila a fila |
 | 05–07 | Concurrencia: READ COMMITTED, REPEATABLE READ (40001), dos emisores |
-| 08 | Con los disparadores apagados, una rama correcta da 23505 y un campo cambiado 23514 |
+| 08 | Con los disparadores apagados: una rama correcta da 23505; un campo cambiado o una fecha futura, 23514 |
 | 09 | Inalterabilidad para la app, el propietario y el superusuario |
-| 10 | Hora del sellado, husos, cambios de hora, tope y VF006 |
+| 10 | Hora del sellado, husos, cambios de hora, tope, VF006 y la fecha de expedición según la zona |
 | 11 | Detección en SQL y JS: encadenamiento, huella, cola y ancla (copia vieja) |
-| 12 | Validaciones: cada entrada mala, su código y su campo |
+| 12 | Validaciones: cada entrada mala, su código y su campo; barrido de todos los puntos de código en `NumSerieFactura` |
 | 13 | ROLLBACK, SAVEPOINT y varias filas en una sentencia |
-| 14 | Permisos, SECURITY DEFINER, `search_path` y el caso Supabase simulado |
+| 14 | Permisos, SECURITY DEFINER, `search_path = pg_catalog, pg_temp` y el caso Supabase simulado |
 | 15 | `pg_dump` + `pg_restore` |
 | 16 | Instalación por psql, reinstalar, LATIN1 y los ejemplos |
-| 17 | Que el repositorio no lleve NIF, rutas, correos ni claves |
+| 17 | Que ni los ficheros ni el **historial de git** (autor, committer y mensaje de cada commit, y cada fichero de cada commit) lleven NIF, rutas, correos (salvo los noreply) ni claves |
 
-Cada **sabotaje** rompe a propósito una guarda en una copia (quita el candado, el disparador, la UNIQUE, el tope de la hora...) y exige que su prueba caiga con su causa. Antes de creerse un rojo se comprueba que el sabotaje se aplicó: el ancla casa una vez, el texto cambió y el ancla ya no está. Cuando un mismo defecto lo ven dos pruebas (un orden de campos cambiado lo ven los ejemplos oficiales y la paridad SQL–JS), se declara en [`test/sabotajes.mjs`](test/sabotajes.mjs). Un rojo que no esté declarado cuenta como fallo.
+La prueba 17 pasa además una lista negra propia si se le da con `VF_LISTA_NEGRA=/ruta/a/lista.txt`: un término por línea, sin distinguir mayúsculas, `re:` delante para una expresión regular. La lista vive **fuera** del repositorio y el informe nunca imprime sus términos, solo su número de línea. Sin ella, la prueba lo anota como NO MIRADO.
 
-La CI ([`.github/workflows/pruebas.yml`](.github/workflows/pruebas.yml)) corre las pruebas en PostgreSQL 14 a 18, el helper en Node 18 a 24 y en Deno, y los sabotajes en PostgreSQL 17.
+Cada **sabotaje** rompe a propósito una guarda en una copia (quita el candado, el disparador, la UNIQUE, el tope de la hora, la regla de ASCII, el `search_path`...) y exige que su prueba caiga con su causa. Antes de creerse un rojo se comprueba que el sabotaje se aplicó: el ancla casa una vez, el texto cambió y el ancla ya no está. Cuando un mismo defecto lo ven dos pruebas (un orden de campos cambiado lo ven los ejemplos oficiales y la paridad SQL–JS), se declara en [`test/sabotajes.mjs`](test/sabotajes.mjs). Un rojo que no esté declarado cuenta como fallo.
 
 ## Comparativa
 
-Hay librerías que calculan la huella VERI\*FACTU en la aplicación (en JS, PHP, C#...). No hemos encontrado ninguna que la calcule y la encadene **dentro de la base**, que es lo que hace esta. La comparativa detallada, proyecto a proyecto, queda pendiente: no se publica sin haber comprobado cada fila.
+Hay librerías que calculan la huella VERI\*FACTU en la aplicación, en varios lenguajes. La comparativa proyecto a proyecto queda pendiente: no la publico sin haber comprobado cada fila.
 
 ## Aviso legal
 
-`verifactu-postgres` es un componente, no un Sistema Informático de Facturación (SIF) ni un sistema VERI\*FACTU completo. No genera ni firma el XML, **no envía nada a la AEAT**, no genera el código QR ni el registro de eventos.
+`verifactu-postgres` es un componente, no un Sistema Informático de Facturación (SIF) ni un sistema VERI\*FACTU completo. No genera el XML, **no envía nada a la AEAT**, no genera el código QR ni el registro de eventos.
 
-Quien lo integra en su programa de facturación es el **productor** de ese sistema, y es quien debe suscribir la **declaración responsable**. La [FAQ oficial de la AEAT](https://sede.agenciatributaria.gob.es/Sede/iva/sistemas-informaticos-facturacion-verifactu/preguntas-frecuentes/certificacion-sistemas-informaticos-declaracion-responsable.html) la atribuye también a quien «integre partes de otro software, ya sea o no de código abierto».
+**El autor no emite declaración responsable de este componente.** Quien lo integra en su programa de facturación es el **productor** de ese sistema y es quien la suscribe. Según la [FAQ oficial de la AEAT](https://sede.agenciatributaria.gob.es/Sede/iva/sistemas-informaticos-facturacion-verifactu/preguntas-frecuentes/certificacion-sistemas-informaticos-declaracion-responsable.html) sobre software de código abierto, la hace quien programa o integra partes de otro software, sea o no de código abierto. En esa declaración indica qué componentes usa, y responde de su funcionamiento, incluidos los sistemas de seguridad. La misma página trata el caso de un sistema con varios componentes de empresas distintas: léela si es el tuyo.
 
-Se ofrece «tal cual», sin garantía (licencia MIT). **No es asesoramiento fiscal ni jurídico.** Es un proyecto independiente, sin relación con la AEAT.
+- No se ha probado contra el entorno de preproducción de la AEAT.
+- Se ofrece «tal cual», sin garantía (licencia MIT). **No es asesoramiento fiscal ni jurídico.**
+- Es un proyecto independiente, sin relación con la AEAT.
+- VERI\*FACTU, PostgreSQL, Supabase y GitHub son marcas de sus titulares. Aquí solo se nombran para decir con qué funciona la librería.
 
 ## Licencia y patrocinio
 
@@ -318,10 +386,11 @@ Para avisar de un fallo de seguridad, mira [SECURITY.md](SECURITY.md).
 
 - **Official spec:** SHA-256 hashes computed exactly as in AEAT specification v0.1.2, reproducing its three official examples.
 - **Sealing:** one chain per issuer (tax ID), sealed by a trigger with the server clock, which never goes backwards.
+- **Validation:** invoice numbers limited to printable ASCII (32–126) as the tax agency requires; no invoice date after the sealing day.
 - **Concurrency:** no forks under concurrency, in READ COMMITTED or REPEATABLE READ.
-- **Append-only:** `UPDATE`, `DELETE` and `TRUNCATE` fail even for the owner and the superuser.
-- **Export and verify:** records export as JSON with the AEAT field names, and are verified in SQL or with a dependency-free JS helper (Node, Deno, browsers).
+- **Append-only:** `UPDATE`, `DELETE` and `TRUNCATE` fail even for the owner and the superuser. The database cannot defend itself from its administrator, though: deliberate DDL (disabling triggers, dropping constraints, replacing functions, restoring an old backup) can still alter the chain. The checks make that visible when verifying, and an external anchor catches a restored old backup.
+- **Export and verify:** records export as JSON with the AEAT field names, and are verified in SQL or with a dependency-free JS helper (Node, Deno, browsers in a secure context).
 
-It needs no extensions (PostgreSQL 14+, UTF8 database). It is a component, **not** a complete invoicing system (SIF): it does not build or sign the XML, send anything to the tax agency, or generate the QR code. Whoever integrates it is the producer of their system and is responsible for the *declaración responsable*.
+It needs no extensions (PostgreSQL 14+, UTF8 database). Tested on PostgreSQL 17.11, Node 24 and Deno 2.9; the CI matrix is configured but has not run yet. It is a component, **not** a complete invoicing system (SIF): it does not build the XML, send anything to the tax agency, or generate the QR code. Its author issues no *declaración responsable* for it: whoever integrates it is the producer of their system and is responsible for that declaration.
 
 Run the tests with `PG_BIN="$(pg_config --bindir)" node test/run.mjs`: they use a throwaway cluster. MIT licensed.

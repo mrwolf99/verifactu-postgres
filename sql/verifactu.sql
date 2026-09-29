@@ -29,7 +29,7 @@ begin
   end if;
   if exists (select 1 from pg_namespace n where n.nspname = 'verifactu') then
     raise exception 'verifactu: el esquema verifactu ya existe; la instalación no pisa nada'
-      using hint = 'Para actualizar una instalación, usa el script de sql/actualizar/ de la versión que toque.';
+      using hint = 'Reinstalar no es la vía para actualizar. La 0.1.0 no trae actualización; una versión nueva traerá la suya y su CHANGELOG dirá cómo aplicarla.';
   end if;
 end
 $comprobar$;
@@ -41,12 +41,12 @@ comment on schema verifactu is
 -- ── 1. Formatos y huella: funciones puras ────────────────────────────────────────────────────────────────
 
 create function verifactu.version() returns text
-  language sql immutable parallel safe set search_path = ''
+  language sql immutable parallel safe set search_path = pg_catalog, pg_temp
   as $$ select '0.1.0' $$;
 
 -- FechaExpedicionFactura: dd-mm-aaaa (anexo de la Orden HAC/1177/2024 y XSD de la AEAT).
 create function verifactu.formato_fecha(p date) returns text
-  language sql immutable strict parallel safe set search_path = ''
+  language sql immutable strict parallel safe set search_path = pg_catalog, pg_temp
   as $$ select lpad(extract(day from p)::integer::text, 2, '0') || '-'
             || lpad(extract(month from p)::integer::text, 2, '0') || '-'
             || lpad(extract(year from p)::integer::text, 4, '0') $$;
@@ -55,7 +55,7 @@ create function verifactu.formato_fecha(p date) returns text
 -- iguales uno y dos decimales; aquí se escribe siempre el mismo texto, en la huella y en la exportación.
 -- Nunca redondea: con más de dos decimales significativos, o con más de 12 cifras enteras, da VF003.
 create function verifactu.formato_importe(p numeric) returns text
-  language plpgsql immutable strict parallel safe set search_path = ''
+  language plpgsql immutable strict parallel safe set search_path = pg_catalog, pg_temp
 as $$
 begin
   if not (abs(p) < 1000000000000) then   -- también NaN e infinito
@@ -72,7 +72,7 @@ $$;
 
 -- FechaHoraHusoGenRegistro: AAAA-MM-DDThh:mm:ss±hh:mm (ISO 8601), en la zona del emisor, sin «Z» ni fracciones.
 create function verifactu.formato_fecha_hora(p timestamptz, p_zona text) returns text
-  language plpgsql stable strict parallel safe set search_path = ''
+  language plpgsql stable strict parallel safe set search_path = pg_catalog, pg_temp
 as $$
 declare
   v_local timestamp := p at time zone p_zona;
@@ -84,29 +84,30 @@ begin
 end
 $$;
 
--- NumSerieFactura: de 1 a 60 caracteres (char_length), sin espacios al principio ni al final (la huella se
--- calcula sin ellos), y sin & = < > " ' ni caracteres de control (U+0001–U+001F, U+007F–U+009F).
--- El «&» no lo prohíbe la AEAT: se rechaza porque la cadena de la huella no se escapa (ver README).
--- Una sola definición: la usan el CHECK de la tabla y el sellado.
+-- NumSerieFactura: de 1 a 60 caracteres, sin espacios al principio ni al final (la huella se calcula sin ellos),
+-- solo ASCII imprimible (del 32 al 126, como exigen las validaciones de la AEAT) y sin & = < > " '.
+-- El «&» no lo prohíbe la AEAT: se rechaza por prudencia (ver README). Una sola definición: la usan el CHECK de
+-- la tabla y el sellado.
 create function verifactu.num_serie_valido(p text) returns boolean
-  language sql immutable parallel safe set search_path = ''
+  language sql immutable parallel safe set search_path = pg_catalog, pg_temp
   as $$ select p is not null
            and char_length(p) between 1 and 60
            and p = btrim(p, ' ')
-           and p !~ E'[\\u0001-\\u001f\\u007f-\\u009f&=<>"\']' $$;
+           and p ~ '^[ -~]+$'
+           and p !~ '[&=<>"'']' $$;
 
 -- Huella: SHA-256 de los bytes UTF-8, en hexadecimal y en mayúsculas (especificación v0.1.2, §2 y §5).
 -- sha256() y convert_to() son del núcleo (PostgreSQL 11+): ni pgcrypto ni ninguna otra extensión.
 -- convert_to() figura como stable en el catálogo; aquí es determinista porque la instalación exige una base UTF8
 -- y convertir UTF8 a UTF8 no toca ningún byte. Por eso esta función se declara immutable.
 create function verifactu.sha256_hex(p text) returns text
-  language sql immutable strict parallel safe set search_path = ''
+  language sql immutable strict parallel safe set search_path = pg_catalog, pg_temp
   as $$ select upper(encode(sha256(convert_to(p, 'UTF8')), 'hex')) $$;
 
 -- Cadena de un alta (especificación v0.1.2, §3): campo=valor unidos por «&», en este orden, sin codificar.
 create function verifactu.cadena_alta(p_nif text, p_num text, p_fecha date, p_tipo text, p_cuota numeric,
                                       p_total numeric, p_huella_anterior text, p_fecha_hora text) returns text
-  language sql immutable strict parallel safe set search_path = ''
+  language sql immutable strict parallel safe set search_path = pg_catalog, pg_temp
   as $$ select 'IDEmisorFactura=' || p_nif
             || '&NumSerieFactura=' || p_num
             || '&FechaExpedicionFactura=' || verifactu.formato_fecha(p_fecha)
@@ -119,7 +120,7 @@ create function verifactu.cadena_alta(p_nif text, p_num text, p_fecha date, p_ti
 -- Cadena de una anulación (especificación v0.1.2, §3).
 create function verifactu.cadena_anulacion(p_nif text, p_num text, p_fecha date, p_huella_anterior text,
                                            p_fecha_hora text) returns text
-  language sql immutable strict parallel safe set search_path = ''
+  language sql immutable strict parallel safe set search_path = pg_catalog, pg_temp
   as $$ select 'IDEmisorFacturaAnulada=' || p_nif
             || '&NumSerieFacturaAnulada=' || p_num
             || '&FechaExpedicionFacturaAnulada=' || verifactu.formato_fecha(p_fecha)
@@ -129,7 +130,7 @@ create function verifactu.cadena_anulacion(p_nif text, p_num text, p_fecha date,
 create function verifactu.huella_registro(p_tipo_registro text, p_nif text, p_num text, p_fecha date, p_tipo text,
                                           p_cuota numeric, p_total numeric, p_huella_anterior text,
                                           p_fecha_hora text) returns text
-  language sql immutable parallel safe set search_path = ''
+  language sql immutable parallel safe set search_path = pg_catalog, pg_temp
   as $$ select verifactu.sha256_hex(case p_tipo_registro
               when 'alta' then verifactu.cadena_alta(p_nif, p_num, p_fecha, p_tipo, p_cuota, p_total,
                                                      p_huella_anterior, p_fecha_hora)
@@ -139,7 +140,7 @@ create function verifactu.huella_registro(p_tipo_registro text, p_nif text, p_nu
 -- La hora del sellado. Va aparte para poder fijarla en las pruebas. En producción es el reloj del servidor en
 -- el instante de sellar, no el del BEGIN (eso sería now()).
 create function verifactu._reloj() returns timestamptz
-  language sql volatile set search_path = ''
+  language sql volatile set search_path = pg_catalog, pg_temp
   as $$ select clock_timestamp() $$;
 
 -- ── 2. Tablas ────────────────────────────────────────────────────────────────────────────────────────────
@@ -183,6 +184,9 @@ create table verifactu.registro (
   constraint registro_nif             check (id_emisor_factura ~ '^[0-9A-Z][0-9]{7}[0-9A-Z]$'),
   constraint registro_num_serie       check (verifactu.num_serie_valido(num_serie_factura)),
   constraint registro_fecha           check (fecha_expedicion_factura between date '1000-01-01' and date '9999-12-31'),
+  -- La fecha de expedición no va por delante del día del sellado en la zona del emisor (los 10 primeros
+  -- caracteres de FechaHoraHusoGenRegistro, que ya van en esa zona).
+  constraint registro_fecha_no_futura check (fecha_expedicion_factura <= substr(fecha_hora_huso_gen_registro, 1, 10)::date),
   constraint registro_campos          check (coalesce(case tipo_registro
       when 'alta' then tipo_factura in ('F1', 'F2', 'F3', 'R1', 'R2', 'R3', 'R4', 'R5')
                    and scale(cuota_total) = 2 and scale(importe_total) = 2
@@ -218,7 +222,7 @@ alter table verifactu.registro enable row level security;
 -- del propietario, varias filas en una sentencia): quien inserta no fija ni el seq, ni la huella, ni la hora,
 -- ni el NIF.
 create function verifactu.tg_sellar() returns trigger
-  language plpgsql set search_path = ''
+  language plpgsql set search_path = pg_catalog, pg_temp
 as $$
 declare
   e       verifactu.emisor;
@@ -250,7 +254,12 @@ begin
       when new.num_serie_factura = '' then 'está vacío'
       when char_length(new.num_serie_factura) > 60
         then format('tiene %s caracteres y el máximo es 60', char_length(new.num_serie_factura))
-      else 'lleva un carácter no admitido (& = < > " '' o un carácter de control)' end;
+      when new.num_serie_factura !~ '^[ -~]+$'
+        then format('lleva U+%s en la posición %s: solo admite ASCII imprimible (del 32 al 126)',
+                    upper(lpad(to_hex(ascii(substring(new.num_serie_factura from '[^ -~]'))),
+                               greatest(4, length(to_hex(ascii(substring(new.num_serie_factura from '[^ -~]'))))), '0')),
+                    position(substring(new.num_serie_factura from '[^ -~]') in new.num_serie_factura))
+      else 'lleva un carácter no admitido (& = < > " o '')' end;
   end if;
   if new.fecha_expedicion_factura is null
      or new.fecha_expedicion_factura not between date '1000-01-01' and date '9999-12-31' then
@@ -352,6 +361,14 @@ begin
     end if;
     v_ahora := u.fecha_hora_gen;
   end if;
+  -- La fecha de expedición no puede ir por delante del día de hoy en la zona del emisor (la AEAT rechaza el
+  -- registro). Lo vigila también el CHECK registro_fecha_no_futura.
+  if new.fecha_expedicion_factura > (v_ahora at time zone e.zona_horaria)::date then
+    raise exception using errcode = 'VF003',
+      message = format('verifactu: FechaExpedicionFactura: %s es posterior al día del sellado (%s en %s)',
+                       verifactu.formato_fecha(new.fecha_expedicion_factura),
+                       verifactu.formato_fecha((v_ahora at time zone e.zona_horaria)::date), e.zona_horaria);
+  end if;
 
   -- 6. Sellar.
   new.id_emisor_factura            := e.nif;
@@ -368,7 +385,7 @@ end
 $$;
 
 create function verifactu.tg_inalterable() returns trigger
-  language plpgsql set search_path = ''
+  language plpgsql set search_path = pg_catalog, pg_temp
 as $$
 begin
   raise exception using errcode = 'VF001',
@@ -381,7 +398,7 @@ end
 $$;
 
 create function verifactu.tg_emisor_guarda() returns trigger
-  language plpgsql set search_path = ''
+  language plpgsql set search_path = pg_catalog, pg_temp
 as $$
 begin
   if new.id is distinct from old.id or new.nif is distinct from old.nif then
@@ -415,7 +432,7 @@ create function verifactu.emitir_alta(p_nif text, p_num_serie_factura text, p_fe
                                       p_tipo_factura text, p_cuota_total numeric, p_importe_total numeric,
                                       p_subsanacion boolean default false)
   returns verifactu.registro
-  language plpgsql security definer set search_path = ''
+  language plpgsql security definer set search_path = pg_catalog, pg_temp
 as $$
 declare
   v_emisor integer;
@@ -436,7 +453,7 @@ $$;
 
 create function verifactu.emitir_anulacion(p_nif text, p_num_serie_factura text, p_fecha_expedicion_factura date)
   returns verifactu.registro
-  language plpgsql security definer set search_path = ''
+  language plpgsql security definer set search_path = pg_catalog, pg_temp
 as $$
 declare
   v_emisor integer;
@@ -455,10 +472,11 @@ $$;
 
 -- Una línea JSON por registro, con los nombres de la AEAT y en orden de seq. RegistroAnterior lleva NIF, serie,
 -- fecha y huella del registro anterior (Orden HAC/1177/2024, art. 7.a); la huella es la que entró en ESTE
--- registro. Para NDJSON: psql -XAt -c "select verifactu.exportar_cadena('…')" (COPY no: duplica las «\»).
+-- registro. Para NDJSON: PGCLIENTENCODING=UTF8 psql -XAt -c "select verifactu.exportar_cadena('…')" (COPY no:
+-- duplica las «\»).
 create function verifactu.exportar_cadena(p_nif text, p_desde_seq bigint default 1)
   returns setof json
-  language plpgsql stable security definer set search_path = ''
+  language plpgsql stable security definer set search_path = pg_catalog, pg_temp
 as $$
 declare
   v_emisor integer;
@@ -503,7 +521,7 @@ $$;
 -- su huella anotados FUERA de la base), detecta también la vuelta a una copia vieja.
 create function verifactu.verificar_cadena(p_nif text, p_ancla_seq bigint default null, p_ancla_huella text default null)
   returns table (ok boolean, registros bigint, seq bigint, motivo text, detalle text, ultima_huella text)
-  language plpgsql stable security definer set search_path = ''
+  language plpgsql stable security definer set search_path = pg_catalog, pg_temp
 as $$
 #variable_conflict use_column
 declare

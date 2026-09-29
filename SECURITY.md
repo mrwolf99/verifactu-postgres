@@ -9,7 +9,9 @@
 
 ## Cómo avisar
 
-Por **Private vulnerability reporting** de GitHub: en este repositorio, pestaña *Security* → *Report a vulnerability*. El aviso llega solo a quien mantiene el proyecto y no queda público hasta que haya arreglo. No hay dirección de correo para esto: por favor, no abras un *issue* público.
+Por **Private vulnerability reporting** de GitHub: en este repositorio, pestaña *Security* → *Report a vulnerability*. El aviso llega solo a quien mantiene el proyecto y no queda público hasta que haya arreglo. No hay dirección de correo para esto: por favor, no cuentes el fallo en un *issue* público.
+
+Si no ves el botón *Report a vulnerability*, abre un *issue* que diga solo que tienes un aviso de seguridad y pides un canal privado, **sin detalles del fallo**.
 
 Ayuda mucho que el aviso diga:
 
@@ -21,12 +23,14 @@ Ayuda mucho que el aviso diga:
 
 - Una huella que difiera de la especificación de la AEAT (v0.1.2) para alguna entrada que la librería acepte.
 - Saltarse una guarda —bifurcar la cadena, alterar o borrar un registro, fijar un campo que pone la base— **sin DDL y sin ser superusuario**.
+- Que un rol con solo `EXECUTE` sobre la API consiga ejecutar algo con los privilegios del propietario.
+- Que la librería selle un registro que las validaciones de la AEAT rechazan y que el README dice que se rechaza.
 - Permisos que se escapan: un rol que, sin que se le conceda, llega a las tablas o a las funciones.
 - Una verificación (SQL o JS) que da ok sobre una cadena alterada que debería detectar según el README.
 
 ## Qué no entra
 
 - Lo que puede hacer el propietario o el superusuario con DDL: apagar disparadores, quitar restricciones, reemplazar funciones o restaurar una copia vieja. Es una limitación declarada en el README ([Qué puede y qué no un superusuario](README.md#qué-puede-y-qué-no-un-superusuario)).
-- Lo que queda fuera del alcance de la librería: el XML, la firma, el envío a la AEAT y el código QR.
+- Lo que queda fuera del alcance de la librería: el XML, el envío a la AEAT y el código QR. (En VERI\*FACTU los registros no se firman; la firma XAdES es de la modalidad NO VERI\*FACTU, y la librería tampoco la hace.)
 
 No hay programa de recompensas.

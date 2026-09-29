@@ -1,6 +1,6 @@
 // Una cadena rica con dos emisores intercalados: verificación SQL y JS en ok, y la cadena y la huella del JS
 // iguales a las del SQL, fila a fila.
-import { CADENA_RICA, NIF_A, NIF_B, exportar, sembrar } from "../lib/cadena.mjs";
+import { CADENA_RICA, NIF_A, NIF_B, PUNTUACION, SESENTA, exportar, sembrar } from "../lib/cadena.mjs";
 import { lit } from "../lib/contexto.mjs";
 
 export const descripcion = "Cadena rica, dos emisores: verificación SQL y JS en ok; cadena y huella JS = SQL fila a fila";
@@ -56,6 +56,8 @@ export default async function (t) {
   t.igual(a[10].CuotaTotal + "|" + a[10].ImporteTotal, "7.00|42.00", "7 y 42 se escriben con dos decimales");
   t.igual(a[11].CuotaTotal + "|" + a[11].ImporteTotal, "0.10|0.60", "0.1 y 0.6 se escriben con dos decimales");
   t.igual(a[3].NumSerieFactura, "R-2024\\4", "la barra invertida viaja intacta por el JSON");
-  t.igual(a[8].NumSerieFactura, "X".repeat(59) + "\u{1F600}", "60 puntos de código");
+  t.igual(a[8].NumSerieFactura, SESENTA, "60 caracteres");
+  t.igual(a[2].NumSerieFactura, PUNTUACION, "toda la puntuación admitida viaja intacta por la huella y el JSON");
+  t.igual(a[9].NumSerieFactura, "SERIE  DOBLE", "los espacios interiores dobles se conservan");
   t.igual(a[4].Subsanacion, "S", "la subsanación se exporta como S");
 }

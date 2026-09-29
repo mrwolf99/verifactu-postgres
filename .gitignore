@@ -4,6 +4,3 @@ node_modules/
 *.dump
 *.ndjson
 !test/vectores/*.ndjson
-
-# Borrador personal del perfil de GitHub Sponsors: se pega a mano en github.com, no se publica con la librería.
-/SPONSORS-PERFIL.md
